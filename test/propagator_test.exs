@@ -197,6 +197,24 @@ defmodule PropagatorTest do
       assert_in_delta Cell.read(f), 212.0, 0.001
     end
 
+    test "Celsius to Fahrenheit: 37°C = 98.6°F (body temperature)" do
+      {f, c} = build_f_c_network()
+
+      Cell.add_content(c, 37)
+      Process.sleep(@settle)
+
+      assert_in_delta Cell.read(f), 98.6, 0.001
+    end
+
+    test "Celsius to Fahrenheit: -40°C = -40°F (crossover point)" do
+      {f, c} = build_f_c_network()
+
+      Cell.add_content(c, -40)
+      Process.sleep(@settle)
+
+      assert_in_delta Cell.read(f), -40.0, 0.001
+    end
+
     test "Fahrenheit to Celsius: 32°F = 0°C" do
       {f, c} = build_f_c_network()
 
@@ -222,6 +240,24 @@ defmodule PropagatorTest do
       Process.sleep(@settle)
 
       assert_in_delta Cell.read(c), 22.222, 0.01
+    end
+
+    test "Fahrenheit to Celsius: -40°F = -40°C (crossover point)" do
+      {f, c} = build_f_c_network()
+
+      Cell.add_content(f, -40)
+      Process.sleep(@settle)
+
+      assert_in_delta Cell.read(c), -40.0, 0.001
+    end
+
+    test "Fahrenheit to Celsius: 98.6°F = 37°C (body temperature)" do
+      {f, c} = build_f_c_network()
+
+      Cell.add_content(f, 98.6)
+      Process.sleep(@settle)
+
+      assert_in_delta Cell.read(c), 37.0, 0.001
     end
   end
 end
