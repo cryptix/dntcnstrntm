@@ -32,23 +32,23 @@ Connect belief tracking to the propagator network. Cells hold `{value, node_ref}
 
 **Design note — process topology.** Phases 1–2 use one GenServer per cell and one spawned process per propagator. That's clean for learning, but Phase 3 doubles the process count (TMS + cells + propagators). At hundreds of cells the message-passing overhead will thrash with cascading notifications before settling. The pragmatic fix: introduce a `Network` GenServer that holds all cells and propagators in plain maps, running the core propagation loop in a single process with in-memory data structures. The public API (`Cell.new/1`, `Cell.read/1`, etc.) stays the same. Reserve separate OTP processes for the outer agent layer only (perception, action, the BDI cycle in Phase 5). This sacrifices architectural purity but actually works at scale.
 
-- [ ] Consolidate cells + propagators behind a single `Network` GenServer
-- [ ] `BeliefCell` — cell content as `{value, tms_node}` pairs, active set derived from TMS labels
-- [ ] Propagators create JTMS justifications alongside values
-- [ ] Retraction cascades through network via TMS `:out` labels
-- [ ] Dependency-directed backtracking
+- [x] Consolidate cells + propagators behind a single `Network` GenServer
+- [x] `BeliefCell` — cell content as `{value, tms_node}` pairs, active set derived from TMS labels
+- [x] Propagators create JTMS justifications alongside values
+- [x] Retraction cascades through network via TMS `:out` labels
+- [x] Dependency-directed backtracking
 
 ### Phase 4: Constraint Solver
 Define a `Solver` behaviour so the solving strategy is pluggable. Build AC-3 behind it as a learning exercise (~30 lines), then move on. A hand-rolled backtracker with AC-3 falls over at ~50 variables or with global constraints (alldifferent, cumulative scheduling). The production path is Solverl bridging to MiniZinc — model constraints declaratively, MiniZinc compiles to Gecode/OR-Tools/Chuffed, and you get industrial-strength propagation and search for free. This split clarifies the architecture: OTP handles the reactive belief layer, the external solver handles combinatorial search.
 
 The novel and interesting part is the *integration* — TMS-backed beliefs feeding constraints to a solver, with results flowing back as new beliefs carrying justification chains. That's where time is best spent.
 
-- [ ] `Solver` behaviour with `solve/1` returning assignments
-- [ ] Set-domain lattice type
-- [ ] AC-3 arc consistency (~30 lines: queue arcs, prune unsupported values, re-enqueue)
-- [ ] `Solver.AC3` — learning implementation behind the behaviour
-- [ ] Backtracking search over domain assignments
-- [ ] Example constraints: resource limits, topic caps, time budgets
+- [x] `Solver` behaviour with `solve/1` returning assignments
+- [x] Set-domain lattice type
+- [x] AC-3 arc consistency (~30 lines: queue arcs, prune unsupported values, re-enqueue)
+- [x] `Solver.AC3` — learning implementation behind the behaviour
+- [x] Backtracking search over domain assignments
+- [x] Example constraints: resource limits, topic caps, time budgets
 - [ ] (Stretch) Solverl/MiniZinc adapter behind the same `Solver` behaviour
 
 ### Phase 5: Agent Loop
