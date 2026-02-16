@@ -116,99 +116,120 @@ defmodule Propagator.Network do
   end
 
   def handle_call({:read_cell, cell_id}, _from, state) do
-    cell = state.cells[cell_id]
-    value = compute_active_value(state, cell)
-    {:reply, value, state}
+    case Map.fetch(state.cells, cell_id) do
+      {:ok, cell} ->
+        value = compute_active_value(state, cell)
+        {:reply, value, state}
+
+      :error ->
+        {:reply, {:error, :cell_not_found}, state}
+    end
   end
 
   def handle_call({:add_content, cell_id, value, informant}, _from, state) do
-    cell = state.cells[cell_id]
-    old_active_value = compute_active_value(state, cell)
+    case Map.fetch(state.cells, cell_id) do
+      {:ok, cell} ->
+        # Reject nil informant - all beliefs must be traceable
+        if informant == nil do
+          {:reply, {:error, :informant_required}, state}
+        else
+          old_active_value = compute_active_value(state, cell)
 
-    # Check if we already have a belief with this exact informant
-    existing =
-      Enum.find(cell.beliefs, fn b ->
-        b.informant == informant && b.value == value
-      end)
+          # Check if we already have an ACTIVE belief with this exact informant and value
+          existing =
+            Enum.find(cell.beliefs, fn b ->
+              b.informant == informant && values_equal?(b.value, value) &&
+                JTMS.node_in?(state.jtms, b.tms_node)
+            end)
 
-    state =
-      if existing do
-        # Already have this exact belief, nothing to do
-        state
-      else
-        # Create new TMS node and assume it
-        node_name = {cell_id, value, informant || make_ref()}
-        JTMS.create_node(state.jtms, node_name)
+          state =
+            if existing do
+              # Already have this exact active belief, nothing to do
+              state
+            else
+              # Create new TMS node and assume it
+              node_name = {cell_id, value, informant, make_ref()}
+              JTMS.create_node(state.jtms, node_name)
+              JTMS.assume_node(state.jtms, node_name)
 
-        if informant do
-          JTMS.assume_node(state.jtms, node_name)
+              belief = %{value: value, tms_node: node_name, informant: informant}
+              update_in(state, [:cells, cell_id, :beliefs], &[belief | &1])
+            end
+
+          new_active_value = compute_active_value(state, state.cells[cell_id])
+
+          # If the active value changed, trigger propagation
+          state =
+            if new_active_value != old_active_value do
+              propagate(state, cell_id)
+            else
+              state
+            end
+
+          {:reply, :ok, state}
         end
 
-        belief = %{value: value, tms_node: node_name, informant: informant}
-        update_in(state, [:cells, cell_id, :beliefs], &[belief | &1])
-      end
-
-    new_active_value = compute_active_value(state, state.cells[cell_id])
-
-    # If the active value changed, trigger propagation
-    state =
-      if new_active_value != old_active_value do
-        propagate(state, cell_id)
-      else
-        state
-      end
-
-    {:reply, :ok, state}
+      :error ->
+        {:reply, {:error, :cell_not_found}, state}
+    end
   end
 
   def handle_call({:retract_content, cell_id, informant}, _from, state) do
-    # Find and retract the TMS node associated with this informant
-    cell = state.cells[cell_id]
-    belief = Enum.find(cell.beliefs, fn b -> b.informant == informant end)
+    case Map.fetch(state.cells, cell_id) do
+      {:ok, cell} ->
+        # Find and retract all TMS nodes associated with this informant
+        beliefs = Enum.filter(cell.beliefs, fn b -> b.informant == informant end)
 
-    state =
-      case belief do
-        %{tms_node: node} ->
-          JTMS.retract_assumption(state.jtms, node)
-          state
+        state =
+          Enum.reduce(beliefs, state, fn belief, s ->
+            JTMS.retract_assumption(s.jtms, belief.tms_node)
+            s
+          end)
 
-        nil ->
-          state
-      end
+        # After retraction, TMS labels may have changed for many cells.
+        # We need to check all cells and re-propagate any whose active values changed.
+        state = check_all_cells_and_propagate(state)
 
-    # After retraction, TMS labels may have changed for many cells.
-    # We need to check all cells and re-propagate any whose active values changed.
-    state = check_all_cells_and_propagate(state)
+        {:reply, :ok, state}
 
-    {:reply, :ok, state}
+      :error ->
+        {:reply, {:error, :cell_not_found}, state}
+    end
   end
 
   def handle_call({:create_propagator, input_cells, output_cells, fun, informant}, _from, state) do
-    prop_id = state.next_propagator_id
+    # Validate that all input cells exist
+    missing_inputs = Enum.reject(input_cells, &Map.has_key?(state.cells, &1))
 
-    propagator = %{
-      id: prop_id,
-      inputs: input_cells,
-      outputs: output_cells,
-      fun: fun,
-      informant: informant
-    }
+    if Enum.empty?(missing_inputs) do
+      prop_id = state.next_propagator_id
 
-    # Subscribe this propagator to all input cells
-    state =
-      Enum.reduce(input_cells, state, fn cell_id, s ->
-        update_in(s, [:cells, cell_id, :subscribers], &MapSet.put(&1, prop_id))
-      end)
+      propagator = %{
+        id: prop_id,
+        inputs: input_cells,
+        outputs: output_cells,
+        fun: fun,
+        informant: informant
+      }
 
-    state =
-      state
-      |> put_in([:propagators, prop_id], propagator)
-      |> update_in([:next_propagator_id], &(&1 + 1))
+      # Subscribe this propagator to all input cells
+      state =
+        Enum.reduce(input_cells, state, fn cell_id, s ->
+          update_in(s, [:cells, cell_id, :subscribers], &MapSet.put(&1, prop_id))
+        end)
 
-    # Fire the propagator once immediately
-    state = fire_propagator(state, prop_id)
+      state =
+        state
+        |> put_in([:propagators, prop_id], propagator)
+        |> update_in([:next_propagator_id], &(&1 + 1))
 
-    {:reply, prop_id, state}
+      # Fire the propagator once immediately
+      state = fire_propagator(state, prop_id)
+
+      {:reply, prop_id, state}
+    else
+      {:reply, {:error, {:cells_not_found, missing_inputs}}, state}
+    end
   end
 
   def handle_call(:get_jtms, _from, state) do
@@ -217,20 +238,24 @@ defmodule Propagator.Network do
 
   # --- Internal helpers ---
 
-  # After a TMS change (like retraction), check all cells for active value changes
-  # and trigger propagation for any that changed.
-  defp check_all_cells_and_propagate(state) do
-    # Collect all cells whose active values have changed
-    changed_cells =
-      state.cells
-      |> Enum.filter(fn {_cell_id, cell} ->
-        # For each cell, we need to store its old active value somewhere,
-        # but we don't have that. Instead, just re-fire all propagators.
-        # This is simpler and correct, though potentially inefficient.
-        true
-      end)
-      |> Enum.map(fn {cell_id, _cell} -> cell_id end)
+  # Check if two values are equal, using epsilon comparison for floats
+  defp values_equal?(a, b) when is_float(a) and is_float(b) do
+    abs(a - b) < 1.0e-9
+  end
 
+  defp values_equal?(a, b) when is_float(a) and is_number(b) do
+    abs(a - b) < 1.0e-9
+  end
+
+  defp values_equal?(a, b) when is_number(a) and is_float(b) do
+    abs(a - b) < 1.0e-9
+  end
+
+  defp values_equal?(a, b), do: a == b
+
+  # After a TMS change (like retraction), re-fire all propagators.
+  # This ensures that any cells whose active values changed will propagate correctly.
+  defp check_all_cells_and_propagate(state) do
     # Re-fire all propagators (they will skip if inputs haven't meaningfully changed)
     Enum.reduce(state.propagators, state, fn {prop_id, _prop}, s ->
       fire_propagator(s, prop_id)
@@ -255,8 +280,8 @@ defmodule Propagator.Network do
         single_value
 
       [first | rest] ->
-        # Multiple active values — check if they're all equal
-        if Enum.all?(rest, &(&1 == first)) do
+        # Multiple active values — check if they're all equal (with epsilon for floats)
+        if Enum.all?(rest, &values_equal?(first, &1)) do
           first
         else
           :contradiction
@@ -292,13 +317,24 @@ defmodule Propagator.Network do
 
   # Add derived content to a cell and create a TMS justification.
   defp add_derived_content(state, cell_id, value, propagator) do
-    cell = state.cells[cell_id]
+    # Validate that the output cell exists
+    case Map.fetch(state.cells, cell_id) do
+      :error ->
+        # Output cell doesn't exist - skip this write
+        state
+
+      {:ok, cell} ->
+        do_add_derived_content(state, cell, cell_id, value, propagator)
+    end
+  end
+
+  defp do_add_derived_content(state, cell, cell_id, value, propagator) do
     old_active_value = compute_active_value(state, cell)
 
     # Check if we already derived this exact value from this propagator
     existing =
       Enum.find(cell.beliefs, fn b ->
-        b.informant == propagator.informant && b.value == value
+        b.informant == propagator.informant && values_equal?(b.value, value)
       end)
 
     state =
