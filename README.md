@@ -20,10 +20,10 @@ The foundation. Cells are GenServers holding lattice values; propagators subscri
 ### Phase 2: JTMS (Belief Tracking)
 A Truth Maintenance System as its own GenServer. Nodes carry `:in`/`:out` labels and point to justifications `{informant, antecedents}`. Supports non-monotonic reasoning — believing X because Y is *out*.
 
-- [ ] JTMS GenServer with node/justification graph
-- [ ] `justify_node/3`, `assume_node/1`, `retract_assumption/1`
-- [ ] Label propagation (`:in` → check consequences, `:out` → check dependents)
-- [ ] Non-monotonic justifications (out-list support)
+- [x] JTMS GenServer with node/justification graph
+- [x] `justify_node/3`, `assume_node/1`, `retract_assumption/1`
+- [x] Label propagation (`:in` → check consequences, `:out` → check dependents)
+- [x] Non-monotonic justifications (out-list support)
 
 ### Phase 3: TMS-backed Cells
 Connect belief tracking to the propagator network. Cells hold `{value, node_ref}` pairs so every derived value carries a dependency chain. Retracting an assumption automatically "forgets" downstream values.
