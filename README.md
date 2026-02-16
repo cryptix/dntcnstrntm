@@ -28,33 +28,57 @@ A Truth Maintenance System as its own GenServer. Nodes carry `:in`/`:out` labels
 ### Phase 3: TMS-backed Cells
 Connect belief tracking to the propagator network. Cells hold `{value, node_ref}` pairs so every derived value carries a dependency chain. Retracting an assumption automatically "forgets" downstream values.
 
-- [ ] `BeliefCell` — cell content tagged with TMS node references
+**Design note — the monotonicity tension.** Lattice cells only merge upward (values grow, never shrink). But real beliefs change: you stop caring about a topic, a source becomes unreliable. This phase has to resolve that tension head-on. The approach: `BeliefCell` does *not* use the lattice merge for its primary value. Instead it holds a set of `{value, tms_node}` pairs. The "current" value is derived from whichever pairs have their TMS node `:in`. When a belief is retracted, the pair's node goes `:out` and the value simply disappears from the active set — no downward merge needed. If all pairs go `:out`, the cell reverts to `:nothing`. This sidesteps the monotonicity conflict rather than fighting it.
+
+**Design note — process topology.** Phases 1–2 use one GenServer per cell and one spawned process per propagator. That's clean for learning, but Phase 3 doubles the process count (TMS + cells + propagators). At hundreds of cells the message-passing overhead will thrash with cascading notifications before settling. The pragmatic fix: introduce a `Network` GenServer that holds all cells and propagators in plain maps, running the core propagation loop in a single process with in-memory data structures. The public API (`Cell.new/1`, `Cell.read/1`, etc.) stays the same. Reserve separate OTP processes for the outer agent layer only (perception, action, the BDI cycle in Phase 5). This sacrifices architectural purity but actually works at scale.
+
+- [ ] Consolidate cells + propagators behind a single `Network` GenServer
+- [ ] `BeliefCell` — cell content as `{value, tms_node}` pairs, active set derived from TMS labels
 - [ ] Propagators create JTMS justifications alongside values
 - [ ] Retraction cascades through network via TMS `:out` labels
 - [ ] Dependency-directed backtracking
 
 ### Phase 4: Constraint Solver
-Lightweight backtracking + AC-3 arc consistency. Variables are cells with set-valued domains; constraints are propagators that prune domains.
+Define a `Solver` behaviour so the solving strategy is pluggable. Build AC-3 behind it as a learning exercise (~30 lines), then move on. A hand-rolled backtracker with AC-3 falls over at ~50 variables or with global constraints (alldifferent, cumulative scheduling). The production path is Solverl bridging to MiniZinc — model constraints declaratively, MiniZinc compiles to Gecode/OR-Tools/Chuffed, and you get industrial-strength propagation and search for free. This split clarifies the architecture: OTP handles the reactive belief layer, the external solver handles combinatorial search.
 
+The novel and interesting part is the *integration* — TMS-backed beliefs feeding constraints to a solver, with results flowing back as new beliefs carrying justification chains. That's where time is best spent.
+
+- [ ] `Solver` behaviour with `solve/1` returning assignments
 - [ ] Set-domain lattice type
 - [ ] AC-3 arc consistency (~30 lines: queue arcs, prune unsupported values, re-enqueue)
+- [ ] `Solver.AC3` — learning implementation behind the behaviour
 - [ ] Backtracking search over domain assignments
 - [ ] Example constraints: resource limits, topic caps, time budgets
+- [ ] (Stretch) Solverl/MiniZinc adapter behind the same `Solver` behaviour
 
 ### Phase 5: Agent Loop
 A BDI (Belief-Desire-Intention) cycle wired to the propagator network.
 
+**Design note — JTMS is single-context.** The JTMS maintains one coherent worldview at a time. To compare "what if I pursue interest A vs B," you retract/reassert assumptions and wait for re-propagation each time. An ATMS handles multiple contexts simultaneously but is substantially harder to implement and the label management gets expensive. For this project, JTMS + retract/reassert is sufficient. If you hit the ceiling, consider snapshot/restore of the JTMS state before reaching for a full ATMS.
+
 - [ ] **Perceive** — ingest external info as TMS assumptions
 - [ ] **Propagate** — let the network settle to fixpoint
-- [ ] **Deliberate** — run constraint solver to select goals
+- [ ] **Deliberate** — call `Solver` to select goals
 - [ ] **Act** — spawn supervised tasks to pursue goals
 - [ ] **Reflect** — retract weakest assumptions on contradiction
 - [ ] Interactive interface (LiveView or CLI) for querying beliefs
+
+## Design Decisions
+
+A record of known trade-offs, so future contributors understand why things are the way they are.
+
+| Decision | Trade-off | Revisit when… |
+|---|---|---|
+| JTMS, not ATMS | Single worldview; must retract/reassert to compare alternatives | The agent loop needs simultaneous "what-if" comparison and snapshot/restore is too slow |
+| `Network` GenServer (Phase 3) | Loses one-process-per-cell elegance; gains throughput | You need cells distributed across nodes, or fault-isolation per cell matters |
+| `Solver` behaviour (Phase 4) | AC-3 for learning, external solver for production | Never — the behaviour abstraction costs nothing and keeps options open |
+| `BeliefCell` as `{value, tms_node}` pairs | Sidesteps monotonicity; active set is a derived view | You need true lattice merge semantics on belief values (unlikely) |
 
 ## References
 
 - Radul, *Propagation Networks* (MIT thesis)
 - Forbus & de Kleer, [*Building Problem Solvers*](https://qrg.northwestern.edu/BPS/readme.html) — Ch. 6 for JTMS
+- [Solverl](https://github.com/bokner/solverl) — Elixir bridge to MiniZinc
 
 ## Installation
 
