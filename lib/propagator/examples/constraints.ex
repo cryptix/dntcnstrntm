@@ -85,7 +85,7 @@ defmodule Propagator.Examples.Constraints do
   - Limited resource availability in each time slot
   """
   def task_scheduling do
-    # Variables: start time for each task (with duration 1 for simplicity)
+    # Variables: start time for each task (task_a has duration 2; task_b and task_c have duration 1)
     variables = %{
       task_a: Set.new([0, 1, 2, 3, 4, 5]),
       task_b: Set.new([0, 1, 2, 3, 4, 5]),
@@ -113,7 +113,7 @@ defmodule Propagator.Examples.Constraints do
     # Constraint: task_b and task_c can't run simultaneously (resource conflict)
     no_overlap_b_c = fn assignment ->
       if Map.has_key?(assignment, :task_b) and Map.has_key?(assignment, :task_c) do
-        # Each task has duration 1
+        # task_b and task_c each have duration 1, so non-equal start times means no overlap
         assignment.task_b != assignment.task_c
       else
         true
