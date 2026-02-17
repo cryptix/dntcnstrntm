@@ -20,22 +20,20 @@ defmodule Propagator.SolverTest do
     test "merge intersects sets" do
       set1 = Set.new([1, 2, 3])
       set2 = Set.new([2, 3, 4])
-      {:ok, result} = Set.merge(set1, set2)
+      result = Set.merge(set1, set2)
       assert Set.to_list(result) |> Enum.sort() == [2, 3]
     end
 
     test "merge with empty set yields contradiction" do
       set1 = Set.new([1, 2, 3])
       set2 = Set.new([])
-      {:ok, result} = Set.merge(set1, set2)
-      assert result == :contradiction
+      assert Set.merge(set1, set2) == :contradiction
     end
 
     test "merge disjoint sets yields contradiction" do
       set1 = Set.new([1, 2])
       set2 = Set.new([3, 4])
-      {:ok, result} = Set.merge(set1, set2)
-      assert result == :contradiction
+      assert Set.merge(set1, set2) == :contradiction
     end
 
     test "size returns domain size" do
