@@ -21,8 +21,9 @@ defmodule Propagator.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      # Uncomment to enable Solver.MiniZinc (also requires MiniZinc on PATH).
+      # See lib/propagator/solver/minizinc.ex for details.
+      # {:solverl, "~> 0.9"}
     ]
   end
 end
