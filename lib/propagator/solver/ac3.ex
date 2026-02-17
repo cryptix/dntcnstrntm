@@ -35,20 +35,21 @@ defmodule Propagator.Solver.AC3 do
   Enforce arc consistency on the variable domains.
 
   Returns `{:ok, pruned_domains}` or `{:error, :no_solution}` if a domain becomes empty.
+
+  Each constraint must be a `{vars, fun}` tuple where `vars` is the list of variable
+  names the constraint involves, and `fun` is a function taking an assignment map.
   """
   def enforce_ac3(domains, constraints) do
-    # Build initial arc queue: for each constraint, add arcs in both directions
-    arcs = build_arc_queue(domains, constraints)
+    arcs = build_arc_queue(constraints)
     process_arcs(arcs, domains, constraints)
   end
 
-  # Build queue of arcs (var_x, var_y, constraint) for all binary constraints
-  defp build_arc_queue(domains, constraints) do
-    var_names = Map.keys(domains)
-
-    Enum.flat_map(constraints, fn constraint ->
-      # For each pair of variables, add bidirectional arcs
-      for x <- var_names, y <- var_names, x != y do
+  # Build the initial arc queue using only the variables each constraint declares.
+  # A constraint {[x, y], fun} produces arcs {x, y, constraint} and {y, x, constraint}.
+  # This avoids the O(N²) explosion of creating arcs for every variable pair.
+  defp build_arc_queue(constraints) do
+    Enum.flat_map(constraints, fn {vars, _fun} = constraint ->
+      for x <- vars, y <- vars, x != y do
         {x, y, constraint}
       end
     end)
@@ -60,18 +61,21 @@ defmodule Propagator.Solver.AC3 do
   defp process_arcs([{x, y, constraint} | rest], domains, constraints) do
     case revise(domains, x, y, constraint) do
       {:unchanged, _} ->
-        # No change, continue with remaining arcs
         process_arcs(rest, domains, constraints)
 
       {:revised, new_domains} ->
-        # Domain of X was pruned
         if MapSet.size(new_domains[x]) == 0 do
-          # Empty domain = no solution
           {:error, :no_solution}
         else
-          # Re-enqueue arcs: for all neighbors Z of X (except Y), add (Z, X, constraint)
-          var_names = Map.keys(domains)
-          new_arcs = for z <- var_names, z != x, z != y, do: {z, x, constraint}
+          # Re-enqueue arcs: for every constraint that involves x, add (z, x, c)
+          # for each other variable z in that constraint (except y).
+          new_arcs =
+            for {vars, _fun} = c <- constraints,
+                x in vars,
+                z <- vars,
+                z != x,
+                z != y,
+                do: {z, x, c}
 
           process_arcs(rest ++ new_arcs, new_domains, constraints)
         end
@@ -83,13 +87,11 @@ defmodule Propagator.Solver.AC3 do
     domain_x = domains[x]
     domain_y = domains[y]
 
-    # Keep only values in X that have at least one supporting value in Y
     new_domain_x =
       domain_x
       |> Set.to_list()
       |> Enum.filter(fn vx ->
         Enum.any?(Set.to_list(domain_y), fn vy ->
-          # Test if assignment {x => vx, y => vy} satisfies the constraint
           satisfies_constraint?(constraint, %{x => vx, y => vy})
         end)
       end)
@@ -103,14 +105,10 @@ defmodule Propagator.Solver.AC3 do
   end
 
   # Check if a partial assignment satisfies a constraint
-  defp satisfies_constraint?(constraint, assignment) do
-    # Constraint is a function that takes an assignment and returns true/false
-    # If the constraint references variables not in the assignment, treat as satisfied
-    # (we can't check yet)
+  defp satisfies_constraint?({_vars, fun}, assignment) do
     try do
-      constraint.(assignment)
+      fun.(assignment)
     rescue
-      # If constraint can't be evaluated (missing vars), assume satisfied for now
       _ -> true
     end
   end
@@ -173,11 +171,10 @@ defmodule Propagator.Solver.AC3 do
 
   # Check if assignment is consistent with all constraints
   defp consistent?(assignment, constraints) do
-    Enum.all?(constraints, fn constraint ->
+    Enum.all?(constraints, fn {_vars, fun} ->
       try do
-        constraint.(assignment)
+        fun.(assignment)
       rescue
-        # If we can't evaluate (missing vars), treat as consistent for now
         _ -> true
       end
     end)
