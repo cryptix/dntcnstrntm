@@ -79,7 +79,7 @@ defmodule Propagator.Examples.Constraints do
   Example: Schedule tasks with dependencies and time windows.
 
   Variables: start times for tasks
-  Domains: time slots (0..10)
+  Domains: time slots (0..5)
   Constraints:
   - Task B must start after Task A finishes (dependencies)
   - Some tasks have deadline constraints
