@@ -57,13 +57,14 @@ defmodule Propagator.SolverTest do
         y: Set.new([1, 2, 3])
       }
 
-      constraint = fn assignment ->
-        if Map.has_key?(assignment, :x) and Map.has_key?(assignment, :y) do
-          assignment.x < assignment.y
-        else
-          true
-        end
-      end
+      constraint =
+        {[:x, :y], fn assignment ->
+          if Map.has_key?(assignment, :x) and Map.has_key?(assignment, :y) do
+            assignment.x < assignment.y
+          else
+            true
+          end
+        end}
 
       assert {:ok, solution} = AC3.solve(variables, [constraint])
       assert solution.x < solution.y
@@ -76,13 +77,14 @@ defmodule Propagator.SolverTest do
         y: Set.new([3, 4])
       }
 
-      constraint = fn assignment ->
-        if Map.has_key?(assignment, :x) and Map.has_key?(assignment, :y) do
-          assignment.x == assignment.y
-        else
-          true
-        end
-      end
+      constraint =
+        {[:x, :y], fn assignment ->
+          if Map.has_key?(assignment, :x) and Map.has_key?(assignment, :y) do
+            assignment.x == assignment.y
+          else
+            true
+          end
+        end}
 
       assert {:error, :no_solution} = AC3.solve(variables, [constraint])
     end
@@ -95,13 +97,14 @@ defmodule Propagator.SolverTest do
         z: Set.new([2, 3, 4])
       }
 
-      constraint = fn assignment ->
-        if map_size(assignment) == 3 do
-          assignment.x + assignment.y == assignment.z
-        else
-          true
-        end
-      end
+      constraint =
+        {[:x, :y, :z], fn assignment ->
+          if map_size(assignment) == 3 do
+            assignment.x + assignment.y == assignment.z
+          else
+            true
+          end
+        end}
 
       assert {:ok, solution} = AC3.solve(variables, [constraint])
       assert solution.x + solution.y == solution.z
@@ -115,21 +118,23 @@ defmodule Propagator.SolverTest do
         z: Set.new([1, 2, 3])
       }
 
-      constraint1 = fn assignment ->
-        if Map.has_key?(assignment, :x) and Map.has_key?(assignment, :y) do
-          assignment.x < assignment.y
-        else
-          true
-        end
-      end
+      constraint1 =
+        {[:x, :y], fn assignment ->
+          if Map.has_key?(assignment, :x) and Map.has_key?(assignment, :y) do
+            assignment.x < assignment.y
+          else
+            true
+          end
+        end}
 
-      constraint2 = fn assignment ->
-        if Map.has_key?(assignment, :y) and Map.has_key?(assignment, :z) do
-          assignment.y < assignment.z
-        else
-          true
-        end
-      end
+      constraint2 =
+        {[:y, :z], fn assignment ->
+          if Map.has_key?(assignment, :y) and Map.has_key?(assignment, :z) do
+            assignment.y < assignment.z
+          else
+            true
+          end
+        end}
 
       assert {:ok, solution} = AC3.solve(variables, [constraint1, constraint2])
       assert solution.x < solution.y
@@ -145,29 +150,32 @@ defmodule Propagator.SolverTest do
       }
 
       # Pairwise inequality constraints
-      neq_ab = fn assignment ->
-        if Map.has_key?(assignment, :a) and Map.has_key?(assignment, :b) do
-          assignment.a != assignment.b
-        else
-          true
-        end
-      end
+      neq_ab =
+        {[:a, :b], fn assignment ->
+          if Map.has_key?(assignment, :a) and Map.has_key?(assignment, :b) do
+            assignment.a != assignment.b
+          else
+            true
+          end
+        end}
 
-      neq_bc = fn assignment ->
-        if Map.has_key?(assignment, :b) and Map.has_key?(assignment, :c) do
-          assignment.b != assignment.c
-        else
-          true
-        end
-      end
+      neq_bc =
+        {[:b, :c], fn assignment ->
+          if Map.has_key?(assignment, :b) and Map.has_key?(assignment, :c) do
+            assignment.b != assignment.c
+          else
+            true
+          end
+        end}
 
-      neq_ac = fn assignment ->
-        if Map.has_key?(assignment, :a) and Map.has_key?(assignment, :c) do
-          assignment.a != assignment.c
-        else
-          true
-        end
-      end
+      neq_ac =
+        {[:a, :c], fn assignment ->
+          if Map.has_key?(assignment, :a) and Map.has_key?(assignment, :c) do
+            assignment.a != assignment.c
+          else
+            true
+          end
+        end}
 
       assert {:ok, solution} = AC3.solve(variables, [neq_ab, neq_bc, neq_ac])
       assert solution.a != solution.b
@@ -178,20 +186,20 @@ defmodule Propagator.SolverTest do
     test "prunes domains with AC-3" do
       # Test that AC-3 actually prunes before backtracking
       # X ∈ {1,2,3}, Y ∈ {4,5,6}, X + Y = 7
-      # AC-3 should prune X to {1,2,3} and Y to {4,5,6}
       # Only valid solutions: (1,6), (2,5), (3,4)
       variables = %{
         x: Set.new([1, 2, 3]),
         y: Set.new([4, 5, 6])
       }
 
-      constraint = fn assignment ->
-        if map_size(assignment) == 2 do
-          assignment.x + assignment.y == 7
-        else
-          true
-        end
-      end
+      constraint =
+        {[:x, :y], fn assignment ->
+          if map_size(assignment) == 2 do
+            assignment.x + assignment.y == 7
+          else
+            true
+          end
+        end}
 
       assert {:ok, solution} = AC3.solve(variables, [constraint])
       assert solution.x + solution.y == 7

@@ -31,32 +31,33 @@ defmodule Propagator.Examples.Constraints do
     }
 
     # Constraint: total hours <= 8 per day
-    total_budget = fn assignment ->
-      if map_size(assignment) < 4 do
-        # Not all variables assigned yet
-        true
-      else
-        total = assignment.coding + assignment.reading + assignment.exercise + assignment.social
-        total <= 8
-      end
-    end
+    total_budget =
+      {[:coding, :reading, :exercise, :social], fn assignment ->
+        if map_size(assignment) < 4 do
+          true
+        else
+          total = assignment.coding + assignment.reading + assignment.exercise + assignment.social
+          total <= 8
+        end
+      end}
 
     # Constraint: if you do a topic, spend at least 1 hour on it (no micro-tasks)
     # This is implicitly encoded in the domain (no 0.5 values)
 
     # Constraint: at most 3 topics active (non-zero) at once
-    max_active_topics = fn assignment ->
-      if map_size(assignment) < 4 do
-        true
-      else
-        active_count =
-          assignment
-          |> Map.values()
-          |> Enum.count(&(&1 > 0))
+    max_active_topics =
+      {[:coding, :reading, :exercise, :social], fn assignment ->
+        if map_size(assignment) < 4 do
+          true
+        else
+          active_count =
+            assignment
+            |> Map.values()
+            |> Enum.count(&(&1 > 0))
 
-        active_count <= 3
-      end
-    end
+          active_count <= 3
+        end
+      end}
 
     constraints = [total_budget, max_active_topics]
 
@@ -93,32 +94,35 @@ defmodule Propagator.Examples.Constraints do
     }
 
     # Constraint: task_b must start after task_a finishes (task_a takes 2 time units)
-    dependency_a_b = fn assignment ->
-      if Map.has_key?(assignment, :task_a) and Map.has_key?(assignment, :task_b) do
-        assignment.task_b >= assignment.task_a + 2
-      else
-        true
-      end
-    end
+    dependency_a_b =
+      {[:task_a, :task_b], fn assignment ->
+        if Map.has_key?(assignment, :task_a) and Map.has_key?(assignment, :task_b) do
+          assignment.task_b >= assignment.task_a + 2
+        else
+          true
+        end
+      end}
 
     # Constraint: task_c must start after task_a finishes
-    dependency_a_c = fn assignment ->
-      if Map.has_key?(assignment, :task_a) and Map.has_key?(assignment, :task_c) do
-        assignment.task_c >= assignment.task_a + 2
-      else
-        true
-      end
-    end
+    dependency_a_c =
+      {[:task_a, :task_c], fn assignment ->
+        if Map.has_key?(assignment, :task_a) and Map.has_key?(assignment, :task_c) do
+          assignment.task_c >= assignment.task_a + 2
+        else
+          true
+        end
+      end}
 
     # Constraint: task_b and task_c can't run simultaneously (resource conflict)
-    no_overlap_b_c = fn assignment ->
-      if Map.has_key?(assignment, :task_b) and Map.has_key?(assignment, :task_c) do
-        # task_b and task_c each have duration 1, so non-equal start times means no overlap
-        assignment.task_b != assignment.task_c
-      else
-        true
-      end
-    end
+    no_overlap_b_c =
+      {[:task_b, :task_c], fn assignment ->
+        if Map.has_key?(assignment, :task_b) and Map.has_key?(assignment, :task_c) do
+          # task_b and task_c each have duration 1, so non-equal start times means no overlap
+          assignment.task_b != assignment.task_c
+        else
+          true
+        end
+      end}
 
     constraints = [dependency_a_b, dependency_a_c, no_overlap_b_c]
 
@@ -156,47 +160,50 @@ defmodule Propagator.Examples.Constraints do
     }
 
     # Constraint: core features must be included
-    must_have_auth = fn assignment ->
-      if Map.has_key?(assignment, :core_auth) do
-        assignment.core_auth == 1
-      else
-        true
-      end
-    end
+    must_have_auth =
+      {[:core_auth], fn assignment ->
+        if Map.has_key?(assignment, :core_auth) do
+          assignment.core_auth == 1
+        else
+          true
+        end
+      end}
 
-    must_have_db = fn assignment ->
-      if Map.has_key?(assignment, :core_db) do
-        assignment.core_db == 1
-      else
-        true
-      end
-    end
+    must_have_db =
+      {[:core_db], fn assignment ->
+        if Map.has_key?(assignment, :core_db) do
+          assignment.core_db == 1
+        else
+          true
+        end
+      end}
 
     # Constraint: total cost <= 10 points
     # (core_auth=3, core_db=4, nice_ui=2, nice_export=3)
-    budget_limit = fn assignment ->
-      if map_size(assignment) < 4 do
-        true
-      else
-        cost =
-          assignment.core_auth * 3 +
-            assignment.core_db * 4 +
-            assignment.nice_ui * 2 +
-            assignment.nice_export * 3
+    budget_limit =
+      {[:core_auth, :core_db, :nice_ui, :nice_export], fn assignment ->
+        if map_size(assignment) < 4 do
+          true
+        else
+          cost =
+            assignment.core_auth * 3 +
+              assignment.core_db * 4 +
+              assignment.nice_ui * 2 +
+              assignment.nice_export * 3
 
-        cost <= 10
-      end
-    end
+          cost <= 10
+        end
+      end}
 
     # Constraint: nice_export requires core_db (dependency)
-    export_requires_db = fn assignment ->
-      if Map.has_key?(assignment, :nice_export) and Map.has_key?(assignment, :core_db) do
-        # If export is included, db must be included
-        assignment.nice_export == 0 or assignment.core_db == 1
-      else
-        true
-      end
-    end
+    export_requires_db =
+      {[:nice_export, :core_db], fn assignment ->
+        if Map.has_key?(assignment, :nice_export) and Map.has_key?(assignment, :core_db) do
+          assignment.nice_export == 0 or assignment.core_db == 1
+        else
+          true
+        end
+      end}
 
     constraints = [must_have_auth, must_have_db, budget_limit, export_requires_db]
 
