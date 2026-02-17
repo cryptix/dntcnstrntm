@@ -36,13 +36,10 @@ defmodule Propagator.Lattice.Set do
     # Intersection: keep only values that satisfy both constraints
     result = MapSet.intersection(set1, set2)
 
-    cond do
-      MapSet.size(result) == 0 ->
-        # Empty set = contradiction
-        {:ok, :contradiction}
-
-      true ->
-        {:ok, result}
+    if MapSet.size(result) == 0 do
+      :contradiction
+    else
+      result
     end
   end
 
