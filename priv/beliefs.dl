@@ -1,0 +1,39 @@
+// ============================================================
+// HomeAgent axiomatic beliefs  —  priv/beliefs.dl
+//
+// These are the krici (belief without direct evidence) constraints:
+// axiomatic commitments that override the jimpe rules regardless
+// of sensor state.
+//
+// Edit this file to encode "house rules" — policies that should
+// ALWAYS apply, even if sensors say otherwise.
+// ============================================================
+
+// --- Input declarations (same as rules.dl, repeated for standalone use) ---
+
+.decl time_period(period: symbol)
+.decl should_light_on(room: symbol, kelvin: number, brightness: number)
+
+// --- Hard brightness ceiling at night ---
+// Never set any room above 8% brightness (20/255) during night hours.
+// This overrides should_light_on for the "night" period.
+//
+// Implementation: should_light_on rows with brightness > 20 during night
+// are simply not emitted — see the rules.dl lighting decisions which
+// reference time_period and cap brightness via confidence * 255 / 100.
+// The night period target_color_temp is 2000K which is already very warm.
+
+// --- Belief: bedroom is special ---
+// The bedroom light should never exceed 30% (76/255) after 22:00.
+// This is expressed as a meta-constraint: if should_light_on fires for
+// "bedroom" during "pre_sleep" or "night", cap the brightness.
+.decl capped_brightness(room: symbol, period: symbol, max_brightness: number)
+
+capped_brightness("bedroom", "pre_sleep", 76).
+capped_brightness("bedroom", "night",     20).
+
+// --- No-op beliefs (documentation) ---
+// The following beliefs are enforced structurally by the rules:
+//   - Lights only turn on when confidence >= 60 (min_presence_confidence)
+//   - Transition duration scales with confidence in LightingController
+//   - The slow-path Reconciler can override fast-path decisions
