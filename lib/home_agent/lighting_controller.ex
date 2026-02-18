@@ -5,20 +5,21 @@ defmodule HomeAgent.LightingController do
   **Fast path** — subscribes to `"presence:<room>"` PubSub events from
   PresenceFusion and adjusts lights immediately (< 100 ms latency):
 
-    confidence >= 80, :djuno  → full circadian lighting, transition 2s
-    confidence >= 60, :jinvi  → 60% of circadian brightness, transition 5s
-    confidence <  60          → 30% fade-out, transition 30s
-    confidence == 0           → turn off after 30s grace fade
+    confidence >= 80, :djuno  → full circadian lighting, transition 1s
+    confidence >= 60, :jinvi  → 60% of circadian brightness, transition 1s
+    confidence <  60          → 30% brightness, transition 2s
+    confidence == 0           → turn off, transition 3s
+
+  Transition times are intentionally short because mmWave radar sensors
+  report at ~1 Hz with very high confidence — any false negative corrects
+  itself within a second. The LED's built-in dimming curve handles visual
+  smoothness; we just need to send the target value promptly.
 
   **Slow path** — subscribes to `"lighting"` PubSub events from the
   Reconciler (Soufflé derived facts) and applies override directives.
   The slow path can turn lights OFF even when the fast path says ON,
   implementing Winter's krici/belief constraints (e.g. "never bright
   after midnight").
-
-  Transition duration scales inversely with confidence: high-confidence
-  presence snaps lights on quickly; low-confidence absence fades slowly,
-  giving the propagator network time to receive contradicting evidence.
   """
 
   use GenServer
