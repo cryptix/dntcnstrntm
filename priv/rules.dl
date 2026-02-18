@@ -1,0 +1,86 @@
+// ============================================================
+// HomeAgent Soufflé rules  —  priv/rules.dl
+//
+// These are the jimpe (understanding) rules: structural inference
+// about what the agent knows. Edit these to change behaviour.
+//
+// Type declarations must appear before any rule that uses them.
+// Priv/beliefs.dl contains the krici (axiomatic belief) constraints
+// that override these rules.
+// ============================================================
+
+// --- Input declarations (facts come from FactGenerator) ---
+
+.decl time_period(period: symbol)
+.decl current_timestamp(ts: number)
+.decl mmwave_active(room: symbol, ts: number)
+.decl pir_active(room: symbol, ts: number)
+.decl door_closed(room: symbol, ts: number)
+.decl room_occupied_confidence(room: symbol, confidence: number)
+.decl room_epistemic_type(room: symbol, etype: symbol)
+
+// --- Derived output declarations ---
+
+// Effective confidence: the confidence that clears the threshold and
+// should drive a lighting decision.
+.decl effective_confidence(room: symbol, confidence: number)
+
+// Target colour temperature for each time period.
+.decl target_color_temp(period: symbol, kelvin: number)
+
+// Lighting decision — what the lights SHOULD do right now.
+.decl should_light_on(room: symbol, kelvin: number, brightness: number)
+
+// Rooms the agent is confident are empty (for turn-off).
+.decl room_inactive(room: symbol)
+
+// Outputs written to stdout by souffle -D-
+.output effective_confidence
+.output should_light_on
+.output room_inactive
+
+// --- Circadian colour temperature by time-of-day ---
+
+target_color_temp("night",     2000).
+target_color_temp("morning",   4000).
+target_color_temp("daytime",   6500).
+target_color_temp("afternoon", 5000).
+target_color_temp("evening",   2700).
+target_color_temp("pre_sleep", 2200).
+
+// --- Effective confidence: only propagate when above threshold ---
+
+effective_confidence(Room, Conf) :-
+  room_occupied_confidence(Room, Conf),
+  Conf >= 60.
+
+// --- Lighting decisions ---
+
+// Full lighting: high confidence + direct knowledge (djuno)
+should_light_on(Room, Kelvin, Brightness) :-
+  room_epistemic_type(Room, "djuno"),
+  room_occupied_confidence(Room, Conf),
+  Conf >= 80,
+  time_period(Period),
+  target_color_temp(Period, Kelvin),
+  Brightness = Conf * 255 / 100.
+
+// Reduced lighting: medium confidence opinion (jinvi)
+should_light_on(Room, Kelvin, Brightness) :-
+  room_epistemic_type(Room, "jinvi"),
+  room_occupied_confidence(Room, Conf),
+  Conf >= 60,
+  Conf < 80,
+  time_period(Period),
+  target_color_temp(Period, Kelvin),
+  Brightness = Conf * 153 / 100.   // 60% of 255
+
+// --- Inactive room detection ---
+
+// A room is inactive when its confidence is below the threshold and
+// there is no recent sensor activity.
+room_inactive(Room) :-
+  room_occupied_confidence(Room, Conf),
+  Conf < 60,
+  !mmwave_active(Room, _),
+  !pir_active(Room, _).
