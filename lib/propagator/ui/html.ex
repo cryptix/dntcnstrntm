@@ -86,7 +86,6 @@ defmodule Propagator.UI.Html do
     width: 8px; height: 8px;
     border-radius: 50%;
     background: var(--green);
-    margin-left: auto;
     transition: background 0.3s;
   }
   #status-dot.stale { background: var(--yellow); }
@@ -300,6 +299,83 @@ defmodule Propagator.UI.Html do
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Quick Tour ── */
+  #tour-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 900;
+    display: none;
+    pointer-events: none;
+  }
+  #tour-overlay.active { display: block; }
+
+  #tour-tooltip {
+    position: fixed;
+    z-index: 1001;
+    background: var(--surface);
+    border: 1px solid var(--cyan);
+    border-radius: 8px;
+    padding: 16px 18px;
+    width: 300px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(6,182,212,0.15);
+    display: none;
+    pointer-events: auto;
+  }
+  #tour-tooltip.active { display: block; }
+
+  .tour-badge {
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .tour-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--cyan);
+    margin-bottom: 8px;
+  }
+  .tour-body {
+    font-size: 11px;
+    color: var(--text);
+    line-height: 1.6;
+    margin-bottom: 14px;
+  }
+  .tour-nav { display: flex; gap: 6px; align-items: center; }
+  #tour-prev:disabled { opacity: 0.35; cursor: default; }
+  #tour-skip {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    font-family: monospace;
+    font-weight: normal;
+  }
+  #tour-skip:hover { color: var(--text); opacity: 1; background: none; }
+
+  .tour-highlight {
+    outline: 2px solid var(--cyan) !important;
+    outline-offset: 3px;
+    position: relative;
+    z-index: 950;
+  }
+  #tour-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-weight: normal;
+    border-radius: 99px;
+    padding: 2px 10px;
+    font-size: 10px;
+  }
+  #tour-btn:hover { border-color: var(--cyan); color: var(--cyan); opacity: 1; background: transparent; }
 </style>
 </head>
 <body>
@@ -307,6 +383,7 @@ defmodule Propagator.UI.Html do
 <header>
   <h1>Propagator Inspector</h1>
   <span id="domain-badge">Room</span>
+  <button id="tour-btn" onclick="startTour()" title="Take a quick tour">? tour</button>
   <span id="status-dot"></span>
 </header>
 
@@ -348,7 +425,7 @@ defmodule Propagator.UI.Html do
   </div>
 
   <!-- ── Events panel ─────────────────────────────────────── -->
-  <div class="panel">
+  <div class="panel" id="events-panel">
     <div class="panel-title">Event Log</div>
     <div class="panel-body" id="events-body"></div>
   </div>
@@ -357,7 +434,7 @@ defmodule Propagator.UI.Html do
 <!-- ── Controls footer ──────────────────────────────────── -->
 <footer>
   <!-- Assert -->
-  <div class="control-section">
+  <div class="control-section" id="assert-section">
     <div class="control-title">Assert belief</div>
     <div class="form-row">
       <select id="assert-cell"></select>
@@ -388,7 +465,7 @@ defmodule Propagator.UI.Html do
   </div>
 
   <!-- Hypothesis mode -->
-  <div class="control-section">
+  <div class="control-section" id="hypo-section">
     <div class="control-title">Hypothesis mode</div>
     <div id="hypo-list"><span style="color:var(--muted)">No hypotheses active</span></div>
     <div class="form-row">
@@ -397,6 +474,19 @@ defmodule Propagator.UI.Html do
     </div>
   </div>
 </footer>
+
+<!-- ── Quick Tour ──────────────────────────────────────── -->
+<div id="tour-overlay"></div>
+<div id="tour-tooltip">
+  <div class="tour-badge"></div>
+  <div class="tour-title"></div>
+  <div class="tour-body"></div>
+  <div class="tour-nav">
+    <button id="tour-prev" onclick="tourPrev()">← Back</button>
+    <button id="tour-next" onclick="tourNext()">Next →</button>
+    <button id="tour-skip" onclick="endTour()">Skip</button>
+  </div>
+</div>
 
 <script>
 // ─── State ────────────────────────────────────────────────────────────────
@@ -791,11 +881,159 @@ async function discardHypos() {
   poll();
 }
 
+// ─── Quick Tour ───────────────────────────────────────────────────────────
+const TOUR_STEPS = [
+  {
+    title: 'Welcome to Propagator Inspector',
+    body: 'This inspector gives you a live view into a running constraint-propagation network. Values flow automatically between cells via propagators, and every belief is tracked by a JTMS — retract any fact and watch downstream values update immediately.',
+    target: null,
+    side: 'center'
+  },
+  {
+    title: 'Cells',
+    body: 'Each card is a network cell. The dot shows its type: blue = sensor (raw input), purple = derived (computed from others), green = actuator (final output). Click a card to expand its belief list and see which sources are active or retracted.',
+    target: '#cells-panel',
+    side: 'right'
+  },
+  {
+    title: 'Network Graph',
+    body: 'The graph visualises value flow. Sensors (left) feed propagators that compute derived cells (centre), which in turn drive actuators (right). Cyan edges are active links. Click any node to select it and inspect its beliefs in the left panel.',
+    target: '#graph-panel',
+    side: 'center'
+  },
+  {
+    title: 'Event Log',
+    body: 'Every belief assertion, retraction, and cell-value change is logged here as it happens. The client polls the server every 800 ms, so you can watch the network settle in real time after each change.',
+    target: '#events-panel',
+    side: 'left'
+  },
+  {
+    title: 'Assert a Belief',
+    body: 'Pick a cell, enter a value, and name the source (default: "user"), then click Assert. Propagators fire immediately and downstream cells update. The source name lets you retract this exact belief later without disturbing others.',
+    target: '#assert-section',
+    side: 'top'
+  },
+  {
+    title: 'Hypothesis Mode',
+    body: '"+ Hypothesis" adds a tentative belief. Explore downstream effects freely, then Commit all (makes them permanent) or Discard all (the JTMS retracts the entire belief chain). Ideal for safe what-if reasoning.',
+    target: '#hypo-section',
+    side: 'top'
+  }
+];
+
+let tourStep = 0;
+let tourHighlighted = null;
+
+function startTour() {
+  tourStep = 0;
+  showTourStep();
+}
+
+function showTourStep() {
+  const step = TOUR_STEPS[tourStep];
+  if (!step) { endTour(); return; }
+
+  document.getElementById('tour-overlay').classList.add('active');
+  const tip = document.getElementById('tour-tooltip');
+  tip.classList.add('active');
+
+  tip.querySelector('.tour-badge').textContent = 'Step ' + (tourStep + 1) + ' of ' + TOUR_STEPS.length;
+  tip.querySelector('.tour-title').textContent = step.title;
+  tip.querySelector('.tour-body').textContent = step.body;
+
+  const prevBtn = tip.querySelector('#tour-prev');
+  const nextBtn = tip.querySelector('#tour-next');
+  prevBtn.disabled = tourStep === 0;
+  nextBtn.textContent = tourStep === TOUR_STEPS.length - 1 ? 'Done ✓' : 'Next →';
+
+  if (tourHighlighted) {
+    tourHighlighted.classList.remove('tour-highlight');
+    tourHighlighted = null;
+  }
+  if (step.target) {
+    const el = document.querySelector(step.target);
+    if (el) { el.classList.add('tour-highlight'); tourHighlighted = el; }
+  }
+
+  requestAnimationFrame(() => positionTooltip(step.target, step.side));
+}
+
+function tourNext() {
+  if (tourStep < TOUR_STEPS.length - 1) { tourStep++; showTourStep(); }
+  else endTour();
+}
+
+function tourPrev() {
+  if (tourStep > 0) { tourStep--; showTourStep(); }
+}
+
+function endTour() {
+  document.getElementById('tour-overlay').classList.remove('active');
+  document.getElementById('tour-tooltip').classList.remove('active');
+  if (tourHighlighted) { tourHighlighted.classList.remove('tour-highlight'); tourHighlighted = null; }
+  try { localStorage.setItem('propagator_tour_done', '1'); } catch(e) {}
+}
+
+function positionTooltip(targetSel, side) {
+  const tip = document.getElementById('tour-tooltip');
+  tip.style.top = '';
+  tip.style.left = '';
+  tip.style.right = '';
+  tip.style.transform = '';
+
+  if (!targetSel || side === 'center') {
+    tip.style.top = '50%';
+    tip.style.left = '50%';
+    tip.style.transform = 'translate(-50%, -50%)';
+    return;
+  }
+
+  const el = document.querySelector(targetSel);
+  if (!el) {
+    tip.style.top = '50%'; tip.style.left = '50%'; tip.style.transform = 'translate(-50%, -50%)';
+    return;
+  }
+
+  const r = el.getBoundingClientRect();
+  const tw = 300;
+  const th = tip.offsetHeight || 220;
+  const gap = 12;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let top, left;
+
+  switch (side) {
+    case 'right':
+      top = Math.min(Math.max(8, r.top + 8), vh - th - 8);
+      left = Math.min(r.right + gap, vw - tw - 8);
+      break;
+    case 'left':
+      top = Math.min(Math.max(8, r.top + 8), vh - th - 8);
+      left = Math.max(8, r.left - tw - gap);
+      break;
+    case 'top':
+      top = Math.max(8, r.top - th - gap);
+      left = Math.max(8, Math.min(r.left + (r.width - tw) / 2, vw - tw - 8));
+      break;
+    case 'bottom':
+      top = Math.min(r.bottom + gap, vh - th - 8);
+      left = Math.max(8, Math.min(r.left + (r.width - tw) / 2, vw - tw - 8));
+      break;
+    default:
+      tip.style.top = '50%'; tip.style.left = '50%'; tip.style.transform = 'translate(-50%, -50%)';
+      return;
+  }
+
+  tip.style.top = top + 'px';
+  tip.style.left = left + 'px';
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────
 (async () => {
   await loadMeta();
   await poll();
   setInterval(poll, 800);
+  try { if (!localStorage.getItem('propagator_tour_done')) setTimeout(startTour, 500); } catch(e) {}
 })();
 
 window.addEventListener('resize', renderGraph);

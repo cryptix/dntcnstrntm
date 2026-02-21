@@ -4,6 +4,31 @@ A constraint propagation network in Elixir/OTP. Cells hold lattice values, propa
 
 Built on ideas from Radul & Sussman's propagator model and Forbus & de Kleer's *Building Problem Solvers*.
 
+## Quick Start
+
+```bash
+# Install Erlang/OTP and Elixir (Ubuntu / Debian / apt)
+apt-get update && apt-get install -y erlang elixir
+
+# Start the server (runs until you Ctrl-C)
+mix run --no-halt
+```
+
+Open **http://localhost:4000** — the **Propagator Inspector** loads with a live Room HVAC model. A quick tour launches automatically on your first visit; you can relaunch it any time via the **? tour** button in the header.
+
+**Try it:**
+
+1. **Assert a sensor value** — pick a cell in the footer, enter a number (e.g. set `temperature_c` to `30`), click *Assert*. Watch derived cells (like `comfort_index`) and actuators update instantly.
+2. **Click a cell** in the left panel to expand its belief list and see which sources are `:in` or `:out` in the JTMS.
+3. **Add a hypothesis** — click *+ Hypothesis*, explore downstream effects, then *Discard all* to roll back the entire belief chain automatically.
+
+For an interactive Elixir session:
+
+```bash
+iex -S mix      # REPL with the application loaded
+mix test        # Run the full test suite
+```
+
 ## Roadmap
 
 ### Phase 1: Cells & Propagators
@@ -82,10 +107,19 @@ A record of known trade-offs, so future contributors understand why things are t
 
 ## Installation
 
+To run locally:
+
+```bash
+apt-get update && apt-get install -y erlang elixir
+mix run --no-halt   # start server → open http://localhost:4000
+mix test            # run the test suite
+iex -S mix          # interactive REPL with the app loaded
+```
+
+To add as a library dependency (once published to Hex):
+
 ```elixir
 def deps do
-  [
-    {:propagator, "~> 0.1.0"}
-  ]
+  [{:propagator, "~> 0.1.0"}]
 end
 ```
