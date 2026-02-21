@@ -14,15 +14,14 @@ defmodule Propagator.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      mod: {Propagator.Application, []},
+      # :inets ships with Erlang/OTP and provides the TCP stack we use for HTTP
+      extra_applications: [:logger, :inets]
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
+  # No external Hex dependencies — uses Erlang/OTP built-ins only.
   defp deps do
-    [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
-    ]
+    []
   end
 end

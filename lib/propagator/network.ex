@@ -81,6 +81,33 @@ defmodule Propagator.Network do
     GenServer.call(network, :get_jtms)
   end
 
+  @doc """
+  Return a snapshot of the full network state for inspection.
+
+  Result map has keys:
+    - `:cells`       — map of cell_id => cell_view
+    - `:propagators` — map of prop_id => propagator_view
+    - `:events`      — list of recent events (newest first, max 200)
+
+  Each `cell_view` has:
+    - `:id`, `:active_value`, `:status`, `:beliefs`, `:subscribers`
+
+  Each belief has: `:value`, `:informant`, `:active` (boolean).
+  """
+  def inspect_state(network) do
+    GenServer.call(network, :inspect_state)
+  end
+
+  @doc """
+  Return events with `:id` greater than `since`.
+
+  Useful for incremental polling: pass the id of the last event you saw
+  and receive only newer events, newest first.
+  """
+  def get_events(network, since \\ 0) do
+    GenServer.call(network, {:get_events, since})
+  end
+
   # --- GenServer callbacks ---
 
   @impl true
@@ -90,7 +117,9 @@ defmodule Propagator.Network do
       cells: %{},
       propagators: %{},
       next_cell_id: 1,
-      next_propagator_id: 1
+      next_propagator_id: 1,
+      events: [],
+      event_counter: 0
     }
 
     {:ok, state}
@@ -153,7 +182,10 @@ defmodule Propagator.Network do
               JTMS.assume_node(state.jtms, node_name)
 
               belief = %{value: value, tms_node: node_name, informant: informant}
-              update_in(state, [:cells, cell_id, :beliefs], &[belief | &1])
+
+              state
+              |> update_in([:cells, cell_id, :beliefs], &[belief | &1])
+              |> log_event(%{type: :belief_added, cell_id: cell_id, value: value, informant: informant})
             end
 
           new_active_value = compute_active_value(state, state.cells[cell_id])
@@ -161,7 +193,14 @@ defmodule Propagator.Network do
           # If the active value changed, trigger propagation
           state =
             if new_active_value != old_active_value do
-              propagate(state, cell_id)
+              state
+              |> log_event(%{
+                type: :cell_changed,
+                cell_id: cell_id,
+                old_value: old_active_value,
+                new_value: new_active_value
+              })
+              |> propagate(cell_id)
             else
               state
             end
@@ -176,15 +215,16 @@ defmodule Propagator.Network do
 
   def handle_call({:retract_content, cell_id, informant}, _from, state) do
     case Map.fetch(state.cells, cell_id) do
-      {:ok, cell} ->
+      {:ok, _cell} ->
         # Find and retract all TMS nodes associated with this informant
-        beliefs = Enum.filter(cell.beliefs, fn b -> b.informant == informant end)
+        beliefs = Enum.filter(state.cells[cell_id].beliefs, fn b -> b.informant == informant end)
 
         state =
           Enum.reduce(beliefs, state, fn belief, s ->
             JTMS.retract_assumption(s.jtms, belief.tms_node)
             s
           end)
+          |> log_event(%{type: :belief_retracted, cell_id: cell_id, informant: informant})
 
         # After retraction, TMS labels may have changed for many cells.
         # We need to check all cells and re-propagate any whose active values changed.
@@ -236,6 +276,59 @@ defmodule Propagator.Network do
     {:reply, state.jtms, state}
   end
 
+  def handle_call(:inspect_state, _from, state) do
+    cells_view =
+      Map.new(state.cells, fn {id, cell} ->
+        active_value = compute_active_value(state, cell)
+
+        status =
+          case active_value do
+            :nothing -> :nothing
+            :contradiction -> :contradiction
+            _ -> :ok
+          end
+
+        beliefs_view =
+          Enum.map(cell.beliefs, fn b ->
+            active = JTMS.node_in?(state.jtms, b.tms_node)
+            %{value: b.value, informant: b.informant, active: active}
+          end)
+
+        {id,
+         %{
+           id: id,
+           active_value: active_value,
+           status: status,
+           beliefs: beliefs_view,
+           subscribers: MapSet.to_list(cell.subscribers)
+         }}
+      end)
+
+    propagators_view =
+      Map.new(state.propagators, fn {id, prop} ->
+        {id,
+         %{
+           id: id,
+           inputs: prop.inputs,
+           outputs: prop.outputs,
+           informant: prop.informant
+         }}
+      end)
+
+    result = %{
+      cells: cells_view,
+      propagators: propagators_view,
+      events: state.events
+    }
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:get_events, since}, _from, state) do
+    events = Enum.filter(state.events, fn e -> e.id > since end)
+    {:reply, events, state}
+  end
+
   # --- Internal helpers ---
 
   # Check if two values are equal, using epsilon comparison for floats
@@ -252,6 +345,14 @@ defmodule Propagator.Network do
   end
 
   defp values_equal?(a, b), do: a == b
+
+  # Append an event to the event log (capped at 200 entries, newest first).
+  defp log_event(state, attrs) do
+    id = state.event_counter + 1
+    event = Map.merge(attrs, %{id: id, timestamp: System.system_time(:millisecond)})
+
+    %{state | events: [event | state.events] |> Enum.take(200), event_counter: id}
+  end
 
   # After a TMS change (like retraction), re-fire all propagators.
   # This ensures that any cells whose active values changed will propagate correctly.
@@ -385,9 +486,16 @@ defmodule Propagator.Network do
 
     new_active_value = compute_active_value(state, state.cells[cell_id])
 
-    # If active value changed, propagate further
+    # If active value changed, log and propagate further
     if new_active_value != old_active_value do
-      propagate(state, cell_id)
+      state
+      |> log_event(%{
+        type: :cell_changed,
+        cell_id: cell_id,
+        old_value: old_active_value,
+        new_value: new_active_value
+      })
+      |> propagate(cell_id)
     else
       state
     end
